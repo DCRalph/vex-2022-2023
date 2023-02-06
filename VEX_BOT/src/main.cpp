@@ -21,12 +21,14 @@
 // back                 digital_out   B
 // ---- END VEXCODE CONFIGURED DEVICES ----
 
-#include "PID.h"
-#include "iostream"
 #include "vex.h"
+
+#include <iostream>
 #include <cmath>
 #include <math.h>
 #include <string>
+#include "PID.h"
+#include "gifclass.h"
 
 using namespace vex;
 competition Competition;
@@ -95,6 +97,7 @@ int dead_zone = 10;
 #define DOWN true
 
 bool screen = false;
+int screenMode = 0;
 
 bool isCursorOn = false;
 int tempStatus = 0;
@@ -538,7 +541,6 @@ int currStatus()
       status = modeError;
   }
   else
-
     status = modeDisabled;
 
   return status;
@@ -549,7 +551,7 @@ void statusHUD()
   print(robotStatus[currStatus()], 1, 0);
   temp = menuOptions[0][configuration[0]] + " " +
          menuOptions[1][configuration[1]] + " " +
-         menuOptions[2][configuration[2]] + "*";
+         menuOptions[2][configuration[2]] + " ";
   print(temp, 2, 0);
 }
 void displayMenu(int currRow, int configuration[])
@@ -1065,63 +1067,18 @@ int main()
 
     if (Brain.Screen.pressing() && screen == false)
     {
-      screen = true;
+      screenMode = 1;
       Brain.Screen.clearScreen();
     }
 
-    if (screen)
+    // Brain.Screen.clearScreen();
+
+    switch (screenMode)
     {
-      Brain.Screen.setFillColor(blue);
-      Brain.Screen.drawRectangle(5, 20, 60, 30);
 
-      Brain.Screen.setPenColor(color::white);
-      Brain.Screen.setFont(prop20);
-      Brain.Screen.printAt(25, 39, "Back");
-
-      Brain.Screen.setCursor(2, 10);
-      Brain.Screen.print(power_usage);
-      Brain.Screen.print("     ");
-      // Brain.Screen.setCursor(2, 15);
-      // Brain.Screen.print(ArmRight.position(deg));
-      // Brain.Screen.print("  ");
-
-      Brain.Screen.setCursor(7, 25);
-      Brain.Screen.print(cata.position(deg));
-      Brain.Screen.print("  ");
-
-      Brain.Screen.setCursor(2, 25);
-      Brain.Screen.print(getDir());
-      Brain.Screen.print("  ");
-      Brain.Screen.setCursor(2, 30);
-      Brain.Screen.print(Inertial.rotation());
-      Brain.Screen.print("  ");
-
-      Brain.Screen.setCursor(4, 10);
-      Brain.Screen.print(cataROT);
-      Brain.Screen.print("  ");
-      Brain.Screen.setCursor(4, 15);
-      // Brain.Screen.print(FrontRight.current());
-      // Brain.Screen.print("  ");
-      // Brain.Screen.setCursor(4, 20);
-      // Brain.Screen.print(BackLeft.current());
-      // Brain.Screen.print("  ");
-      // Brain.Screen.setCursor(4, 25);
-      // Brain.Screen.print(BackRight.current());
-      // Brain.Screen.print("  ");
-
-      // Brain.Screen.setCursor(5, 10);
-      // Brain.Screen.print(FrontLeft.position(rotationUnits::rev));
-      // Brain.Screen.print("  ");
-      // Brain.Screen.setCursor(5, 15);
-      // Brain.Screen.print(FrontRight.position(rotationUnits::rev));
-      // Brain.Screen.print("  ");
-      // Brain.Screen.setCursor(5, 20);
-      // Brain.Screen.print(BackLeft.position(rotationUnits::rev));
-      // Brain.Screen.print("  ");
-      // Brain.Screen.setCursor(5, 25);
-      // Brain.Screen.print(BackRight.position(rotationUnits::rev));
-      // Brain.Screen.print("  ");
-
+    case 1:
+    {
+      Brain.Screen.drawImageFromFile("back.png", 0, 0);
       if (Brain.Screen.pressing())
       {
 
@@ -1130,37 +1087,61 @@ int main()
         while (Brain.Screen.pressing())
           ;
 
-        if (xPos > 5 && xPos < 5 + 60 && yPos > 20 && yPos < 20 + 30)
+        if (xPos > 0 && xPos < 0 + 64 && yPos > 0 && yPos < 0 + 64)
         {
-          screen = false;
+          screenMode = 0;
           Brain.Screen.clearScreen();
         }
       }
+
+      Brain.Screen.drawImageFromFile("swastika.png", 352, 112);
+      Brain.Screen.drawImageFromFile("gay2.png", 224, 112);
+
+      Brain.Screen.setPenColor(white);
+      Brain.Screen.setFillColor(transparent);
+
+      Brain.Screen.setFont(prop20);
+      Brain.Screen.setCursor(1, 10);
+      Brain.Screen.print("INFO");
+
+      sprintf(buf, "%.1f  ", getDir());
+
+      Brain.Screen.setCursor(5, 1);
+      Brain.Screen.print(buf);
+
+      sprintf(buf, "%.1f  ", Inertial.rotation());
+
+      Brain.Screen.setCursor(6, 1);
+      Brain.Screen.print(buf);
     }
-    else
+
+    break;
+    default:
+    case 0:
     {
       if (getValues(AUTON_COLOR) == RED)
       {
         Brain.Screen.drawImageFromFile("red.png", 0, 0);
-        // Brain.Screen.setFillColor(red);
+        Brain.Screen.setFillColor(red);
       }
       else if (getValues(AUTON_COLOR) == BLUE)
       {
         Brain.Screen.drawImageFromFile("blue.png", 0, 0);
-        // Brain.Screen.setFillColor(blue);
+        Brain.Screen.setFillColor(blue);
       }
       else if (getValues(AUTON_COLOR) == 2)
       {
         Brain.Screen.drawImageFromFile("gay.png", 0, 0);
       }
     }
+    break;
+    }
 
-    if (tempStatus != currStatus())
-    { //  || autoTempStatus != automatic
+    if (tempStatus != currStatus() || Controller1.ButtonUp.pressing())
+    {
       statusHUD();
       tempStatus = currStatus();
-      // autoTempStatus = automatic;
     }
-    delay(200);
+    delay(100);
   }
 }

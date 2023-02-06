@@ -1,18 +1,18 @@
 {
-  "project": {
-    "name": "ogga_bogg",
-    "slot": 1,
-    "description": "100% win rate",
-    "platform": "V5",
-    "creationDate": "Wed, 23 Nov 2022 08:21:55 GMT",
-    "language": "cpp",
-    "sdkVersion": "V5_20220726_10_00_00",
-    "cpp": {
-      "includePath": []
-    }
-  },
-  "extension": {
-    "version": "0.3.0",
-    "json": 1
-  }
+	"project": {
+		"name": "ogga_bogg",
+		"slot": 1,
+		"description": "100% win rate",
+		"platform": "V5",
+		"creationDate": "Wed, 23 Nov 2022 08:21:55 GMT",
+		"language": "cpp",
+		"sdkVersion": "V5_20220726_10_00_00",
+		"cpp": {
+			"includePath": []
+		}
+	},
+	"extension": {
+		"version": "0.3.0",
+		"json": 1
+	}
 }
