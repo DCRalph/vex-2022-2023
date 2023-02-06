@@ -18,18 +18,18 @@
 // ---- START VEXCODE CONFIGURED DEVICES ----
 // Robot Configuration:
 // [Name]               [Type]        [Port(s)]
-// L3                   motor         20              
-// L2                   motor         19              
-// R3                   motor         11              
-// R2                   motor         12              
-// Controller1          controller                    
-// Inertial             inertial      16              
-// L1                   motor         18              
-// R1                   motor         13              
-// roller               motor         14              
-// Launcher             digital_out   A               
+// L2                   motor         9
+// R2                   motor         2
+// Controller1          controller
+// Inertial             inertial      16
+// L1                   motor         10
+// R1                   motor         1
+// roller               motor         6
+// Launcher             digital_out   A
+// back                 digital_out   B
 // ---- END VEXCODE CONFIGURED DEVICES ----
 
+#include "PID.h"
 #include "iostream"
 #include "vex.h"
 #include <cmath>
@@ -38,6 +38,10 @@
 
 using namespace vex;
 competition Competition;
+
+void log(std::string logggggggg) { std::cout << logggggggg << std::endl; }
+
+#define logg(x) std::cout << x << std::endl
 
 float move_max = 1;
 float move_min = .3;
@@ -95,6 +99,9 @@ int dead_zone = 10;
 #define IN false
 #define OUT true
 
+#define UP false
+#define DOWN true
+
 bool screen = false;
 
 bool isCursorOn = false;
@@ -121,40 +128,200 @@ bool yeeted = false;
 
 bool expandState = IN;
 
-void delay(int amount_eeeeee) { task::sleep(amount_eeeeee); }
+int cataROT = 0;
+bool cataLast = false;
 
-void log(std::string logggggggg) { std::cout << logggggggg << std::endl; }
+void delay(int amount_eeeeee) { task::sleep(amount_eeeeee); }
 
 // motor_group leftGroup(LB1, LB2, LF1, LF2);
 // motor_group rightGroup(RB1, RB2, RF1, RF2);
 
-motor_group leftGroup(L1, L2, L3);
-motor_group rightGroup(R1, R2, R3);
-
-// motor_group expand(expandL, expandR);
-
-drivetrain driveTrain(leftGroup, rightGroup, 320, 382, 334, mm, 1.5);
+// motor_group leftGroup(L1, L2, L3);
+// motor_group rightGroup(R1, R2, R3);
 
 // pneumatics claw = pneumatics(Brain.ThreeWirePort.A);
 
 // pneumatics Launcher = pneumatics(Brain.ThreeWirePort.A);
 // pneumatics spiner = pneumatics(Brain.ThreeWirePort.B);
 
-
 double map(double x, double in_min, double in_max, double out_min,
-           double out_max) {
+           double out_max)
+{
   return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
 }
 
 double getDir() { return Inertial.rotation() / gyroScale; }
 
-void drive(double deeeez, int speed) {
+double dirRel = getDir();
+
+double resetDirRel()
+{
+  dirRel = getDir();
+  return dirRel;
+}
+
+class virtualHeading
+{
+private:
+  double offset = 0;
+  double heading = 0;
+
+public:
+  virtualHeading(double offsetI)
+  {
+    offset = offsetI;
+  }
+
+  void set(double offsetI)
+  {
+    offset = offsetI;
+  }
+
+  void setHeading(double headingI)
+  {
+    heading = headingI;
+  }
+
+  double get()
+  {
+    return getDir() - offset;
+  }
+
+  double getHeading()
+  {
+    return heading;
+  }
+
+  void reset()
+  {
+    offset = 0;
+    heading = 0;
+  }
+};
+
+void drive(double deeeez, int speed)
+{
   driveTrain.driveFor(directionType::fwd, deeeez, distanceUnits::mm, speed,
                       velocityUnits::pct);
 }
 
-void drivePd(double deeeez, double sp) {
-  if (Inertial.installed()) {
+void drivePDNew(double deeeez, double spV, virtualHeading &vh)
+{
+
+  leftGroup.resetPosition();
+  rightGroup.resetPosition();
+
+  // spV = 50;
+
+  // PID pid(1, .2, .09);
+  PID pid(.3, 0.008, 0.01, spV, -spV);
+
+  PID pidTheta(1.5, 0.005, 0.01, 100, -100);
+
+  double target = (deeeez / 320) * 360;
+
+  pid.setTarget(target);
+  pidTheta.setTarget(vh.getHeading());
+
+  double theta;
+  double pidOut;
+  double mSpeed;
+  double tolerance = 2;
+  double min2 = 5;
+
+  while (1)
+  {
+    int average = (leftGroup.position(deg) + rightGroup.position(deg)) / 2;
+
+    pidOut = pid.calc(pid.target, average);
+    theta = pidTheta.calc(pidTheta.target, vh.get());
+
+    if (std::abs(pid.error) < tolerance)
+    {
+      leftGroup.stop();
+      rightGroup.stop();
+      break;
+    }
+
+    // if (std::abs(pidOut - theta) <= 100)
+    //   pidOut = pidOut - theta;
+    // else
+    //   pidOut = pidOut + theta;
+
+    if (pidOut < min2 && pidOut > -min2)
+    {
+      if (pidOut < 0)
+        pidOut = -min2;
+      else
+        pidOut = min2;
+    }
+
+    mSpeed = 0.60 * mSpeed + 0.40 * pidOut;
+
+    leftGroup.spin(fwd, mSpeed + theta, pct);
+    rightGroup.spin(fwd, mSpeed - theta, pct);
+
+    // logg("speed");
+    // logg(mSpeed);
+    // logg("error");
+    // logg(pid.error);
+
+    // logg(theta);
+    // this_thread::sleep_for(20);
+    delay(pid.dT * 1000);
+  }
+}
+
+void turnPDNew(double degs, double spV, virtualHeading &vh)
+{
+  PID pid(.8, 0.008, 0.01, spV, -spV);
+
+  pid.setTarget(degs);
+
+  double pidOut;
+  double mSpeed;
+  double tolerance = 1;
+  double min2 = 5;
+  while (1)
+  {
+    pidOut = pid.calc(pid.target, vh.get());
+
+    // if (std::abs(pid.error) < tolerance * abs(pid.derivative) * .09)
+    //   pid.integral = 0;
+
+    if (abs(pid.derivative) < 1 && std::abs(pid.error) < tolerance * 3)
+      goto kill;
+
+    if (std::abs(pid.error) < tolerance && abs(pid.derivative) < 10)
+    {
+    kill:
+      leftGroup.stop();
+      rightGroup.stop();
+      vh.setHeading(degs);
+      break;
+    }
+
+    if (pidOut < min2 && pidOut > -min2)
+    {
+      if (pidOut < 0)
+        pidOut = -min2;
+      else
+        pidOut = min2;
+    }
+
+    mSpeed = 0.60 * mSpeed + 0.40 * pidOut;
+
+    leftGroup.spin(fwd, mSpeed, pct);
+    rightGroup.spin(directionType::rev, mSpeed, pct);
+
+    delay(pid.dT * 1000);
+  }
+}
+
+void drivePd(double deeeez, double sp)
+{
+  if (Inertial.installed())
+  {
     // Inertial.resetRotation();
     leftGroup.resetPosition();
     rightGroup.resetPosition();
@@ -181,7 +348,8 @@ void drivePd(double deeeez, double sp) {
     double kP = 1;
     double kD = 20;
     double prevError = error;
-    while (std::abs(error) > 5) {
+    while (std::abs(error) > 5)
+    {
       // average = (FrontLeft.position(deg) + MidLeft.position(deg) +
       //            BackLeft.position(deg) + FrontRight.position(deg) +
       //            MidRight.position(deg) + BackRight.position(deg)) /
@@ -207,37 +375,17 @@ void drivePd(double deeeez, double sp) {
     }
     leftGroup.stop();
     rightGroup.stop();
-  } else {
-    log("fuk");
   }
-}
-
-void pTurn(double degrees) // p loop
-{
-  if (Inertial.installed()) {
-    Inertial.resetRotation();
-
-    int dt = 20;
-    double target = degrees;
-    double error = target - getDir();
-    double kP = .6;
-    while (std::abs(error) > 1) {
-      error = target - getDir();
-      double percent = kP * error + 20 * error / std::abs(error);
-      leftGroup.spin(directionType::fwd, percent, pct);
-      rightGroup.spin(directionType::rev, percent, pct);
-      vex::task::sleep(dt);
-    }
-    leftGroup.stop();
-    rightGroup.stop();
-  } else {
+  else
+  {
     log("fuk");
   }
 }
 
 void pdTurn(double degrees, double sp = 1) // pd loop
 {
-  if (Inertial.installed()) {
+  if (Inertial.installed())
+  {
     // Inertial.resetRotation();
 
     int dt = 50;
@@ -248,7 +396,8 @@ void pdTurn(double degrees, double sp = 1) // pd loop
     double kI = 1000;
     double prevError = error;
     double intergral = 0;
-    while (std::abs(error) > .5) {
+    while (std::abs(error) > .5)
+    {
       error = target - getDir();
       intergral += error;
       double derivative = (error - prevError) / dt;
@@ -262,9 +411,26 @@ void pdTurn(double degrees, double sp = 1) // pd loop
     }
     leftGroup.stop();
     rightGroup.stop();
-  } else {
-    log("fuk");
   }
+  else
+    log("fuk");
+}
+
+void calabrate(void)
+{
+
+  Inertial.resetRotation();
+
+  L1.resetPosition();
+  L2.resetPosition();
+
+  R1.resetPosition();
+  R2.resetPosition();
+
+  roller.resetPosition();
+  intake.resetPosition();
+
+  cata.resetPosition();
 }
 
 //===============================================MADNESS===============================================
@@ -272,17 +438,18 @@ void pdTurn(double degrees, double sp = 1) // pd loop
 std::string robotStatus[4] = {"Robot Disabled", "Driver Control",
                               "Auton Control ", "MODE ERROR    "};
 
-int maxMenusIndex[maxMenus] = {2, 9, 3};
-int configuration[maxMenus] = {0, 1, 0};
+int maxMenusIndex[maxMenus] = {3, 9, 3};
+int configuration[maxMenus] = {0, 3, 0};
 
 std::string menuTypes[maxMenus] = {"Color: ", "Option: ", "Drive: "};
 
 std::string menuOptions[maxMenus][9] = {
-    {"Red", "Blue"},
+    {"Red", "Blue", "no lgbt"},
     {"Skills", "1", "2", "3", "4", "5", "G1", "G2", "G3"},
     {"RC", "Tank", "RC2"}};
 
-int keyPressedRaw() {
+int keyPressedRaw()
+{
   if (Controller1.ButtonUp.pressing() == true)
     return btnUP;
   if (Controller1.ButtonDown.pressing() == true)
@@ -310,44 +477,50 @@ int keyPressedRaw() {
   else
     return btnNONE;
 }
-int keyPressed() {
+int keyPressed()
+{
   int noBounceKey = keyPressedRaw();
   task::sleep(bounceDelay);
-  if (noBounceKey == keyPressedRaw()) {
+  if (noBounceKey == keyPressedRaw())
     return noBounceKey;
-  } else {
+  else
     return btnNONE;
-  }
 }
-void clearLine(int l_row) {
-  if (isCursorOn == true) {
+void clearLine(int l_row)
+{
+  if (isCursorOn == true)
+  {
     Controller1.Screen.setCursor(l_row + 1, 2);
     Controller1.Screen.print("               ");
-  } else
+  }
+  else
     Controller1.Screen.clearLine();
 }
 void clearScreen(void) { Controller1.Screen.clearScreen(); }
 
-void print(std::string text, int row, int col) {
+void print(std::string text, int row, int col)
+{
   clearLine(row);
-  if (isCursorOn == true) {
+  if (isCursorOn == true)
     Controller1.Screen.setCursor(row + 1, col + 2);
-  } else {
+  else
     Controller1.Screen.setCursor(row + 1, col + 1);
-  }
   Controller1.Screen.print(text.c_str());
 }
 
-void print2(std::string text, int row, int col) {
+void print2(std::string text, int row, int col)
+{
   Controller1.Screen.setCursor(row, 0);
   Controller1.Screen.print("               ");
   Controller1.Screen.setCursor(row, col);
   Controller1.Screen.print(text.c_str());
 }
 
-void selector(int row) {
+void selector(int row)
+{
   isCursorOn = true;
-  for (int i = 1; i <= screenTextHeight; i++) {
+  for (int i = 1; i <= screenTextHeight; i++)
+  {
     Controller1.Screen.setCursor(i, 1);
     Controller1.Screen.print("|");
   }
@@ -355,58 +528,69 @@ void selector(int row) {
   Controller1.Screen.setCursor(showCursor, 1);
   Controller1.Screen.print(">");
 }
-void notificationHUD(std::string str) {
+void notificationHUD(std::string str)
+{
   clearLine(0);
   print(str, 0, 0);
 }
-int currStatus() {
+int currStatus()
+{
   int status;
-  if (Competition.isEnabled()) {
-    if (Competition.isAutonomous()) {
+  if (Competition.isEnabled())
+  {
+    if (Competition.isAutonomous())
       status = modeAuton;
-    } else if (Competition.isDriverControl()) {
+    else if (Competition.isDriverControl())
       status = modeDriver;
-    } else {
+    else
       status = modeError;
-    }
-  } else {
-    status = modeDisabled;
   }
+  else
+
+    status = modeDisabled;
+
   return status;
 }
-void statusHUD() {
+void statusHUD()
+{
   std::string temp;
   print(robotStatus[currStatus()], 1, 0);
   temp = menuOptions[0][configuration[0]] + " " +
          menuOptions[1][configuration[1]] + " " +
-         menuOptions[2][configuration[2]] + " ";
+         menuOptions[2][configuration[2]] + "*";
   print(temp, 2, 0);
 }
-void displayMenu(int currRow, int configuration[]) {
+void displayMenu(int currRow, int configuration[])
+{
   std::string temp;
   selector(currRow);
-  for (int i = 0; i < screenTextHeight; i++) {
+  for (int i = 0; i < screenTextHeight; i++)
+  {
     temp = menuTypes[i] + menuOptions[i][configuration[i]];
     print(temp, i, 0);
   }
 }
-int getValues(int wantConfig) {
-  if (wantConfig > maxMenus) {
+int getValues(int wantConfig)
+{
+  if (wantConfig > maxMenus)
     return NULL;
-  } else {
+  else
     return configuration[wantConfig];
-  }
 }
-void menuCONFIG() {
+void menuCONFIG()
+{
   isCursorOn = true;
   int currCursorMenu = 0;
   int currCursorOptions = 0;
   bool isAutonSelectScreen = true;
-  while (isAutonSelectScreen == true) {
+  while (isAutonSelectScreen == true)
+  {
     displayMenu(currCursorMenu, configuration);
     bool isValidButton = false;
-    while (isValidButton == false) {
-      switch (keyPressed()) {
+    while (isValidButton == false)
+    {
+      switch (keyPressed())
+      {
       case (btnUP):
         isValidButton = true;
         currCursorMenu--;
@@ -450,32 +634,8 @@ void menuCONFIG() {
 //===============================================END OF
 // MADNESS===============================================
 
-void calabrate(void) {
-
-  // FrontLeft.resetRotation();
-  // FrontRight.resetRotation();
-  // BackLeft.resetRotation();
-  // BackRight.resetRotation();
-  // MidLeft.resetPosition();
-  // MidRight.resetPosition();
-
-  // ArmLeft.resetPosition();
-  // ArmRight.resetPosition();
-
-  Inertial.resetRotation();
-
-  L1.resetRotation();
-  L2.resetRotation();
-  L3.resetRotation();
-
-  R1.resetRotation();
-  R2.resetRotation();
-  R3.resetRotation();
-
-  roller.resetRotation();
-}
-
-void Move(int Ch1_, int Ch3_, int Ch4_) {
+void Move(int Ch1_, int Ch3_, int Ch4_)
+{
   Ch1 = Ch1_;
   Ch3 = Ch3_;
   Ch4 = Ch4_;
@@ -497,7 +657,8 @@ void Move(int Ch1_, int Ch3_, int Ch4_) {
   // MidRight.spin(directionType::fwd, F_Right, velocityUnits::pct);
 }
 
-void pre_auton(void) {
+void pre_auton(void)
+{
   menuCONFIG();
 
   Inertial.calibrate(2000);
@@ -508,33 +669,69 @@ void pre_auton(void) {
   Controller1.rumble(".");
 }
 
-void auton1() {
+void auton1()
+{
   // win
 
-  Move(0, -50, 0);
+  Move(0, -20, 0);
   delay(1000);
   Move(0, 50, 0);
   delay(1000);
   Move(0, 0, 0);
 }
 
-void auton2() {
-  // armGroup.rotateTo(-200, deg, 100, velocityUnits::pct);
+void auton2()
+{
+  drive(-1500, 50);
 
-  // delay(200);
+  delay(200);
 
-  // armGroup.rotateTo(-1400, deg, 100, velocityUnits::pct);
+  pdTurn(-45);
+
+  delay(200);
+
+  cata.spinFor(1800, deg, 100, velocityUnits::pct, true);
+
+  intake.spin(directionType::fwd, 80, velocityUnits::pct);
+
+  delay(1000);
+
+  intake.stop();
+
+  delay(200);
+
+  cata.spinFor(1800, deg, 100, velocityUnits::pct, true);
 }
 
-void auton3() {}
+void auton3()
+{
+  virtualHeading VH1(getDir());
+
+  drivePDNew(500, 80, VH1);
+  logg("here11");
+  logg(VH1.get());
+
+  delay(500);
+
+  turnPDNew(180, 80, VH1);
+  logg("here12");
+  logg(VH1.get());
+
+  delay(500);
+
+  drivePDNew(500, 50, VH1);
+  logg("here13");
+  logg(VH1.get());
+}
 
 void auton4() {}
 
 void auton5() {}
 
-void autonG1(void) {
+void autonG1(void)
+{
   // win
-  drivePd(1000, .5);
+  drivePd(1000, -.5);
 
   delay(200);
 
@@ -553,7 +750,8 @@ void autonG1(void) {
   drivePd(-500, .5);
 }
 
-void autonG2(void) {
+void autonG2(void)
+{
   // win
 
   // delay(200);
@@ -567,38 +765,45 @@ void autonG3(void) {}
 
 void autonSkills() {}
 
-void auton(void) {
-  // FrontLeft.setStopping(brake);
-  // FrontRight.setStopping(brake);
-  // BackLeft.setStopping(brake);
-  // BackRight.setStopping(brake);
-  // MidLeft.setStopping(brake);
-  // MidRight.setStopping(brake);
-
+void auton(void)
+{
   leftGroup.setStopping(hold);
   rightGroup.setStopping(hold);
 
-  // armGroup.setStopping(hold);
-
-  // driveTrain.setStopping(coast);
-
-  if (configuration[1] == 0) { // Skills
+  if (configuration[1] == 0)
+  { // Skills
     autonSkills();
-  } else if (configuration[1] == 1) {
+  }
+  else if (configuration[1] == 1)
+  {
     auton1();
-  } else if (configuration[1] == 2) {
+  }
+  else if (configuration[1] == 2)
+  {
     auton2();
-  } else if (configuration[1] == 3) {
+  }
+  else if (configuration[1] == 3)
+  {
     auton3();
-  } else if (configuration[1] == 4) {
+  }
+  else if (configuration[1] == 4)
+  {
     auton4();
-  } else if (configuration[1] == 5) {
+  }
+  else if (configuration[1] == 5)
+  {
     auton5();
-  } else if (configuration[1] == 6) {
+  }
+  else if (configuration[1] == 6)
+  {
     autonG1();
-  } else if (configuration[1] == 7) {
+  }
+  else if (configuration[1] == 7)
+  {
     autonG2();
-  } else if (configuration[1] == 8) {
+  }
+  else if (configuration[1] == 8)
+  {
     autonG3();
   }
 
@@ -606,7 +811,8 @@ void auton(void) {
   Controller1.rumble(".");
 }
 
-void RCDrive(void) {
+void RCDrive(void)
+{
   Ch1 = Controller1.Axis1.position(percent) * move;
   Ch3 = Controller1.Axis3.position(percent) * move;
   Ch4 = Controller1.Axis4.position(percent) * move;
@@ -616,16 +822,20 @@ void RCDrive(void) {
   // Ch3 = 0.95 * Ch3 + 0.05 * Controller1.Axis3.position(percent);
   // Ch4 = 0.95 * Ch4 + 0.05 * Controller1.Axis4.position(percent);
 
-  if (Ch1 < dead_zone && Ch1 > -dead_zone) {
+  if (Ch1 < dead_zone && Ch1 > -dead_zone)
+  {
     Ch1 = 0;
   }
-  if (Ch2 < dead_zone && Ch2 > -dead_zone) {
+  if (Ch2 < dead_zone && Ch2 > -dead_zone)
+  {
     Ch2 = 0;
   }
-  if (Ch3 < dead_zone && Ch3 > -dead_zone) {
+  if (Ch3 < dead_zone && Ch3 > -dead_zone)
+  {
     Ch3 = 0;
   }
-  if (Ch4 < dead_zone && Ch4 > -dead_zone) {
+  if (Ch4 < dead_zone && Ch4 > -dead_zone)
+  {
     Ch4 = 0;
   }
 
@@ -660,25 +870,63 @@ void RCDrive(void) {
 
   // rightGroup.spin(directionType::fwd, 14, voltageUnits::volt);
 
-  if (move_rev) {
+  if (move_rev)
+  {
     leftGroup.spin(directionType::rev, F_Right, voltageUnits::volt);
     rightGroup.spin(directionType::rev, F_Left, voltageUnits::volt);
-
-  } else {
+  }
+  else
+  {
     leftGroup.spin(directionType::fwd, F_Left, voltageUnits::volt);
     rightGroup.spin(directionType::fwd, F_Right, voltageUnits::volt);
   }
 }
 
-void RCDrive2(void) {
+void RCDrive2(void)
+{
   // hmmm
 }
 
-void tankDrive(void) {
+void tankDrive(void)
+{
   // hmmm
 }
 
-void user(void) {
+void btnAP()
+{
+  if (cata.isDone())
+  {
+    cata.spinFor(1800, deg, 100, velocityUnits::pct, false);
+  }
+}
+
+void btnBP() {}
+void btnXP() {}
+void btnYP()
+{
+  // used
+}
+void btnUpP()
+{
+  if (move == move_max)
+    move = move_min;
+  else if (move == move_min)
+    move = move_max;
+  else
+    move = move_max;
+}
+void btnDownP() { move_rev = !move_rev; }
+void btnLeftP()
+{
+  // used
+}
+void btnRightP()
+{
+  // used
+}
+
+void user(void)
+{
 
   while (keyPressed() != btnNONE)
     ;
@@ -687,23 +935,22 @@ void user(void) {
   rightGroup.setStopping(hold);
 
   roller.setStopping(hold);
+  cata.setStopping(hold);
 
+  Controller1.ButtonA.pressed(btnAP);
+  Controller1.ButtonB.pressed(btnBP);
+  Controller1.ButtonX.pressed(btnXP);
+  Controller1.ButtonY.pressed(btnYP);
+  Controller1.ButtonUp.pressed(btnUpP);
+  Controller1.ButtonDown.pressed(btnDownP);
+  Controller1.ButtonLeft.pressed(btnLeftP);
+  Controller1.ButtonRight.pressed(btnRightP);
 
-  while (1) {
+  while (1)
+  {
 
-    if (keyPressedRaw() == btnUP) {
-      move = move_max;
-    }
-    if (keyPressedRaw() == btnDOWN) {
-      move = move_min;
-    }
-
-    if (keyPressedRaw() == btnRIGHT) {
-      calabrate();
-      auton();
-    }
-
-    switch (getValues(AUTON_DRIVE)) {
+    switch (getValues(AUTON_DRIVE))
+    {
     case RC:
       RCDrive();
       break;
@@ -717,13 +964,6 @@ void user(void) {
       break;
     }
 
-    if (Controller1.ButtonX.pressing()) {
-      move_rev = !move_rev;
-
-      while (Controller1.ButtonX.pressing())
-        ;
-    }
-
     // if (Controller1.ButtonY.pressing()) {
     //   if(yeeted)  YEET.rotateFor(180, deg, 100, velocityUnits::pct);
     //   else YEET.rotateFor(-180, deg, 100, velocityUnits::pct);
@@ -734,26 +974,75 @@ void user(void) {
     //     ;
     // }
 
+    // if (Controller1.ButtonY.pressing())
+    // {
+    //   if (yeeted)
+    //     Launcher.set(true);
+    //   else
+    //     Launcher.set(false);
 
-     if (Controller1.ButtonY.pressing()) {
-      if(yeeted) Launcher.set(true);
-      else  Launcher.set(false);
+    //   yeeted = !yeeted;
 
-      yeeted = !yeeted;
-
-      while (Controller1.ButtonY.pressing())
-        ;
+    //   while (Controller1.ButtonY.pressing())
+    //     ;
+    // }
+    if (Controller1.ButtonY.pressing())
+    {
+      if (Competition.isCompetitionSwitch() || Competition.isFieldControl())
+        return;
+      else
+        auton();
     }
 
-    if (Controller1.ButtonR1.pressing()) {
+    if (Controller1.ButtonB.pressing())
+      Launcher.set(true);
+    else
+      Launcher.set(false);
+
+    if (Controller1.ButtonLeft.pressing())
+    {
+      cata.spin(directionType::fwd, 14, voltageUnits::volt);
+      cataLast = true;
+    }
+    else if (Controller1.ButtonRight.pressing())
+    {
+      cata.spin(directionType::rev, 14, voltageUnits::volt);
+      cataLast = true;
+    }
+    else
+    {
+      if (cataLast)
+      {
+        cata.stop();
+        cataLast = false;
+      }
+    }
+
+    if (Controller1.ButtonL1.pressing())
+    {
+      intake.spin(directionType::fwd, 100, velocityUnits::pct);
+    }
+    else if (Controller1.ButtonL2.pressing())
+    {
+      intake.spin(directionType::rev, 100, velocityUnits::pct);
+    }
+    else
+    {
+      intake.stop();
+    }
+
+    if (Controller1.ButtonR1.pressing())
+    {
       roller.spin(directionType::fwd, 14, voltageUnits::volt);
-    } else if (Controller1.ButtonR2.pressing()) {
+    }
+    else if (Controller1.ButtonR2.pressing())
+    {
       roller.spin(directionType::rev, 14, voltageUnits::volt);
-    } else {
+    }
+    else
+    {
       roller.stop();
     }
-
-  
 
     // looooooooooooooooooooooooooooooooooooooop
   }
@@ -761,9 +1050,8 @@ void user(void) {
 
 char buf[512];
 
-int main() {
-
-  vexcodeInit();
+int main()
+{
 
   calabrate();
 
@@ -772,35 +1060,25 @@ int main() {
   Competition.autonomous(auton);
   Competition.drivercontrol(user);
 
-  if (getValues(AUTON_COLOR) == RED) {
-    Brain.Screen.setFillColor(red);
-  } else if (getValues(AUTON_COLOR) == BLUE) {
-    Brain.Screen.setFillColor(blue);
-  }
-
-  Brain.Screen.drawRectangle(-10, -10, 500, 500);
-
-  Brain.Screen.setPenColor(color::white);
-  Brain.Screen.setFont(prop60);
-  Brain.Screen.printAt(150, 120, "2903 S");
-
-  while (1) {
+  while (1)
+  {
     power_usage = 0;
     power_usage += L1.power(watt);
     power_usage += L2.power(watt);
-    power_usage += L3.power(watt);
+    // power_usage += L3.power(watt);
 
     power_usage += R1.power(watt);
     power_usage += R2.power(watt);
-    power_usage += R3.power(watt);
+    // power_usage += R3.power(watt);
 
-
-    if (Brain.Screen.pressing() && screen == false) {
+    if (Brain.Screen.pressing() && screen == false)
+    {
       screen = true;
       Brain.Screen.clearScreen();
     }
 
-    if (screen) {
+    if (screen)
+    {
       Brain.Screen.setFillColor(blue);
       Brain.Screen.drawRectangle(5, 20, 60, 30);
 
@@ -810,14 +1088,14 @@ int main() {
 
       Brain.Screen.setCursor(2, 10);
       Brain.Screen.print(power_usage);
-      Brain.Screen.print("  ");
+      Brain.Screen.print("     ");
       // Brain.Screen.setCursor(2, 15);
       // Brain.Screen.print(ArmRight.position(deg));
       // Brain.Screen.print("  ");
 
-      // Brain.Screen.setCursor(7, 25);
-      // Brain.Screen.print(armGroup.position(deg));
-      // Brain.Screen.print("  ");
+      Brain.Screen.setCursor(7, 25);
+      Brain.Screen.print(cata.position(deg));
+      Brain.Screen.print("  ");
 
       Brain.Screen.setCursor(2, 25);
       Brain.Screen.print(getDir());
@@ -826,10 +1104,10 @@ int main() {
       Brain.Screen.print(Inertial.rotation());
       Brain.Screen.print("  ");
 
-      // Brain.Screen.setCursor(4, 10);
-      // Brain.Screen.print(FrontLeft.current());
-      // Brain.Screen.print("  ");
-      // Brain.Screen.setCursor(4, 15);
+      Brain.Screen.setCursor(4, 10);
+      Brain.Screen.print(cataROT);
+      Brain.Screen.print("  ");
+      Brain.Screen.setCursor(4, 15);
       // Brain.Screen.print(FrontRight.current());
       // Brain.Screen.print("  ");
       // Brain.Screen.setCursor(4, 20);
@@ -852,21 +1130,41 @@ int main() {
       // Brain.Screen.print(BackRight.position(rotationUnits::rev));
       // Brain.Screen.print("  ");
 
-      if (Brain.Screen.pressing()) {
+      if (Brain.Screen.pressing())
+      {
 
         int xPos = Brain.Screen.xPosition();
         int yPos = Brain.Screen.yPosition();
         while (Brain.Screen.pressing())
           ;
 
-        if (xPos > 5 && xPos < 5 + 60 && yPos > 20 && yPos < 20 + 30) {
+        if (xPos > 5 && xPos < 5 + 60 && yPos > 20 && yPos < 20 + 30)
+        {
           screen = false;
           Brain.Screen.clearScreen();
         }
       }
     }
+    else
+    {
+      if (getValues(AUTON_COLOR) == RED)
+      {
+        Brain.Screen.drawImageFromFile("red.png", 0, 0);
+        // Brain.Screen.setFillColor(red);
+      }
+      else if (getValues(AUTON_COLOR) == BLUE)
+      {
+        Brain.Screen.drawImageFromFile("blue.png", 0, 0);
+        // Brain.Screen.setFillColor(blue);
+      }
+      else if (getValues(AUTON_COLOR) == 2)
+      {
+        Brain.Screen.drawImageFromFile("gay.png", 0, 0);
+      }
+    }
 
-    if (tempStatus != currStatus()) { //  || autoTempStatus != automatic
+    if (tempStatus != currStatus())
+    { //  || autoTempStatus != automatic
       statusHUD();
       tempStatus = currStatus();
       // autoTempStatus = automatic;
