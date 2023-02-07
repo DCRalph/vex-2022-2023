@@ -1,5 +1,11 @@
-#include "gifdec.h"
-
+/*----------------------------------------------------------------------------*/
+/*                                                                            */
+/*    Module:       gifclass.cpp                                              */
+/*    Author:       James                                                     */
+/*    Created:      Thu Mar 21 2019                                           */
+/*    Description:  C++ wrapper for gif decode                                */
+/*                                                                            */
+/*----------------------------------------------------------------------------*/
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -8,6 +14,14 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
+
+#include "gifclass.h"
+
+/*----------------------------------------------------------------------------*/
+// The following code was originally in a file gifdec.c
+// by Marcel Rodrigues from this github repo.
+// https://github.com/lecram/gifdec
+//
 
 #define MIN(A, B) ((A) < (B) ? (A) : (B))
 #define MAX(A, B) ((A) > (B) ? (A) : (B))
@@ -35,7 +49,7 @@ read_num(FILE *fp)
     return bytes[0] + (((uint16_t) bytes[1]) << 8);
 }
 
-gd_GIF *
+static gd_GIF *
 gd_open_gif( FILE *fp )
 {
     uint8_t sigver[3];
@@ -55,7 +69,7 @@ gd_open_gif( FILE *fp )
     fread(sigver, 1, 3, fp);
     if (memcmp(sigver, "89a", 3) != 0) {
         fprintf(stderr, "invalid version\n");
-        goto fail;
+        // goto fail;
     }
     /* Width x Height */
     width  = read_num(fp);
@@ -77,7 +91,7 @@ gd_open_gif( FILE *fp )
     /* Aspect Ratio */
     fread(&aspect, 1, 1, fp);
     /* Create gd_GIF Structure. */
-    gif = calloc(1, sizeof(*gif) + (BYTES_PER_PIXEL+1) * width * height);
+    gif = (gd_GIF *)calloc(1, sizeof(*gif) + (BYTES_PER_PIXEL+1) * width * height);
     if (!gif) goto fail;
     gif->fp = fp;
     gif->width  = width;
@@ -224,13 +238,13 @@ new_table(int key_size)
 {
     int key;
     int init_bulk = MAX(1 << (key_size + 1), 0x100);
-    Table *table = malloc(sizeof(*table) + sizeof(Entry) * init_bulk);
+    Table *table = (Table *)malloc(sizeof(*table) + sizeof(Entry) * init_bulk);
     if (table) {
         table->bulk = init_bulk;
         table->nentries = (1 << key_size) + 2;
         table->entries = (Entry *) &table[1];
         for (key = 0; key < (1 << key_size); key++)
-            table->entries[key] = (Entry) {1, 0xFFF, key};
+            table->entries[key] = (Entry) {1, 0xFFF, (uint8_t)key};
     }
     return table;
 }
@@ -245,7 +259,7 @@ add_entry(Table **tablep, uint16_t length, uint16_t prefix, uint8_t suffix)
     Table *table = *tablep;
     if (table->nentries == table->bulk) {
         table->bulk *= 2;
-        table = realloc(table, sizeof(*table) + sizeof(Entry) * table->bulk);
+        table = (Table *)realloc(table, sizeof(*table) + sizeof(Entry) * table->bulk);
         if (!table) return -1;
         table->entries = (Entry *) &table[1];
         *tablep = table;
@@ -329,6 +343,7 @@ read_image_data(gd_GIF *gif, int interlace)
     clear = 1 << key_size;
     stop = clear + 1;
     table = new_table(key_size);
+    if(table == NULL) goto fail;
     key_size++;
     init_key_size = key_size;
     sub_len = shift = 0;
@@ -379,6 +394,8 @@ read_image_data(gd_GIF *gif, int interlace)
     fread( &sub_len, 1, 1, gif->fp); /* Must be zero! */
     fseek(gif->fp, end, SEEK_SET);
     return 0;
+fail:
+    return -1;
 }
 
 /* Read image.
@@ -458,7 +475,7 @@ dispose(gd_GIF *gif)
 }
 
 /* Return 1 if got a frame; 0 if got GIF trailer; -1 if error. */
-int
+static int
 gd_get_frame(gd_GIF *gif)
 {
     char sep;
@@ -478,22 +495,171 @@ gd_get_frame(gd_GIF *gif)
     return 1;
 }
 
-void
+static void
 gd_render_frame(gd_GIF *gif, uint8_t *buffer)
 {
     memcpy(buffer, gif->canvas, gif->width * gif->height * BYTES_PER_PIXEL);
     render_frame_rect(gif, buffer);
 }
 
-void
+static void
 gd_rewind(gd_GIF *gif)
 {
     fseek(gif->fp, gif->anim_start, SEEK_SET);
 }
 
-void
+static void
 gd_close_gif(gd_GIF *gif)
 {
     fclose(gif->fp);
     free(gif);
+}
+
+/*----------------------------------------------------------------------------*/
+// C++ wrapper class by James
+// 2019 - 2022
+// MIT license
+//
+
+// static member function to handle rendering frames
+//
+int
+Gif::render_task(void *arg ) {
+  if( arg == NULL)
+    return(0);
+    
+  Gif *instance = static_cast<Gif *>(arg);
+
+  gd_GIF *gif = instance->_gif;
+
+  for (unsigned looped = 1;; looped++) {
+      int32_t now = instance->_timer.system();
+      int err = 0;
+      instance->_frame = 0;
+
+      while ((err = gd_get_frame(gif)) > 0) {
+          gd_render_frame(gif, (uint8_t *)instance->_buffer);
+                    
+          instance->_lcd.drawImageFromBuffer((uint32_t *)instance->_buffer, instance->_sx, instance->_sy, gif->width, gif->height );
+          instance->_frame++;
+
+          // how long to get, render and draw to screen
+          int32_t delay = gif->gce.delay * 10;
+        
+          // do we need delay to honor loop speed
+          int32_t delta = instance->_timer.system() - now;
+          delay -= delta;
+          if( delay > 0 ) {
+            this_thread::sleep_for(delay);
+          }
+
+          // for next loop
+          now = instance->_timer.system();
+      }
+      if( err == -1 ) {
+        printf("Gif: error\n");
+        break;
+      }
+      // done ?
+      if (looped == gif->loop_count) {
+        break;
+      }
+
+      gd_rewind(gif);
+  }
+ 
+  instance->cleanup();
+
+  return(0);
+}
+
+Gif::Gif( const char *fname, int sx, int sy, bool bMemoryBuffer ) {
+  _sx = sx;
+  _sy = sy;
+  FILE *fp = fopen( fname, "rb" );
+
+  if( fp != NULL ) {
+    // get file length
+    fseek( fp, 0, SEEK_END );
+    size_t len = ftell( fp );
+    fseek( fp, 0, SEEK_SET );
+
+    // optimize by reading into memory buffer ?
+    if( bMemoryBuffer ) {
+      _gifmem = malloc( len );
+      if( _gifmem != NULL ) {
+        int nRead = fread( _gifmem, 1, len, fp );
+        (void) nRead;
+      }
+      fclose(fp);
+      fp = NULL;
+    }
+
+    // using memory, then reopen file
+    if( _gifmem != NULL ) {
+      // create a FILE from memory buffer
+      fp = fmemopen( _gifmem, len, "rb" );
+    }
+
+    // good file ?
+    if( fp != NULL ) {
+      // open gif file
+      // will allocate memory for background and one animation
+      // frame.
+      _gif = gd_open_gif( fp );
+      if( _gif == NULL ) {
+        return;
+      }
+      
+      // memory for rendering frame
+      _buffer = (uint32_t *)malloc(_gif->width * _gif->height * sizeof(uint32_t));
+      if( _buffer == NULL ) {
+        // out of memory
+        gd_close_gif( _gif );
+        if( _gifmem ) {
+          free(_gifmem);
+        }
+      }
+      else {
+        // create thread to handle this gif
+        _t1 = thread( render_task, static_cast<void *>(this) );
+      }
+    }
+  }
+};
+
+Gif::~Gif() {
+  cleanup();
+};
+
+// cleanup memory when gif finishs
+//
+
+void
+Gif::cleanup() {
+  // stop thread
+  _t1.interrupt();
+
+  if( _buffer ) {
+    free(_buffer);
+    _buffer = NULL;
+  }
+
+  if( _gif ) {
+    gd_close_gif(_gif);
+    _gif = NULL;
+  }
+
+  if( _gifmem ) {
+    free(_gifmem);
+    _gifmem = NULL;
+  }
+}
+
+// get current rendered frame
+//
+
+int
+Gif::getFrameIndex() {
+  return _frame;
 }

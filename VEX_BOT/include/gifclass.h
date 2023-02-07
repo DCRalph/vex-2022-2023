@@ -1,115 +1,85 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <math.h>
-#include <unistd.h>
+/*----------------------------------------------------------------------------*/
+/*                                                                            */
+/*    Module:       gifclass.h                                                */
+/*    Author:       James                                                     */
+/*    Created:      Thu Mar 21 2019                                           */
+/*    Description:  C++ wrapper for gif decode                                */
+/*                                                                            */
+/*----------------------------------------------------------------------------*/
+#include "vex.h"
 
-#include "gifdec.h"
+typedef struct gd_Palette {
+    int         size;
+    uint8_t     colors[0x100 * 3];
+} gd_Palette;
 
-// not exposed in C++ yet.
-extern "C" {
-  int32_t               vexTaskAddWithArg( int (* callback)(void *), int interval, void *arg, char const *label );
-}
+/*----------------------------------------------------------------------------*/
+// originally in giddec.h
+//
+typedef struct gd_GCE {
+    uint16_t    delay;
+    uint8_t     tindex;
+    uint8_t     disposal;
+    int         input;
+    int         transparency;
+} gd_GCE;
+
+typedef struct gd_GIF {
+    FILE       *fp;
+    off_t       anim_start;
+    uint16_t    width;
+    uint16_t    height;
+    uint16_t    depth;
+    uint16_t    loop_count;
+    gd_GCE      gce;
+    gd_Palette *palette;
+    gd_Palette  lct;
+    gd_Palette  gct;
+    
+    void (*plain_text)(
+      struct gd_GIF *gif,
+      uint16_t  tx,
+      uint16_t  ty,
+      uint16_t  tw,
+      uint16_t  th, 
+      uint8_t   cw,
+      uint8_t   ch,
+      uint8_t   fg,
+      uint8_t   bg
+    );
+    
+    void (*comment)(struct gd_GIF *gif);
+    
+    void (*application)(struct gd_GIF *gif, char id[8], char auth[3]);
+    
+    uint16_t    fx, fy, fw, fh;
+    uint8_t     bgindex;
+    uint8_t    *canvas;
+    uint8_t    *frame;
+} gd_GIF;
+
+/*----------------------------------------------------------------------------*/
 
 namespace vex {
   class Gif {
     private:
-      gd_GIF *_gif;
-      int    _sx;
-      int    _sy;
-      void   *_gifmem;
-      void   *_buffer;
+      gd_GIF          *_gif = NULL;
+      int              _sx;
+      int              _sy;
+      void            *_gifmem = NULL;
+      void            *_buffer = NULL;
+      int              _frame  = 0;
 
-    static int render(void *arg ) {
-      if( arg == NULL)
-        return(0);
-        
-      Gif *instance = static_cast<Gif *>(arg);
+      vex::timer       _timer;
+      vex::brain::lcd  _lcd;
+      vex::thread      _t1;
 
-      gd_GIF *gif = instance->_gif;
-    
-      for (unsigned looped = 1;; looped++) {
-          while (gd_get_frame(gif)) {
-              int32_t now = vexSystemTimeGet();
-
-              gd_render_frame(gif, (uint8_t *)instance->_buffer);
-            
-              int32_t ex = instance->_sx + gif->width - 1;
-              int32_t ey = instance->_sy + gif->height - 1;
-              ex  = (ex  > 479 ? 479 : ex  );
-              ey  = (ey  > 239 ? 239 : ey  );
-            
-              vexDisplayCopyRect( instance->_sx, instance->_sy, ex, ey, (uint32_t *)instance->_buffer, gif->width);
-            
-              int32_t delay = gif->gce.delay * 10;
-            
-              int32_t delta = vexSystemTimeGet() - now;
-              delay -= delta;
-              if( delay > 0 )
-                this_thread::sleep_for(delay);
-          }
-          if (looped == gif->loop_count)
-              break;
-
-          gd_rewind(gif);
-      }
-    
-      free(instance->_buffer);
-      gd_close_gif(gif);
-      free(instance->_gifmem);
-    
-      return(0);
-    }
-
+      static int render_task(void *arg );
     
     public:
-      Gif( const char *fname, int sx, int sy ) {
-        _sx = sx;
-        _sy = sy;
-        FILE *fp = fopen( fname, "rb" );
-
-        if( fp != NULL ) {
-          fseek( fp, 0, SEEK_END );
-          size_t len = ftell( fp );
-          fseek( fp, 0, SEEK_SET );
-
-          _gifmem = malloc( len );
-          
-          if( _gifmem != NULL ) {
-            int nRead = fread( _gifmem, 1, len, fp );
-            (void) nRead;
-          }
-          fclose(fp);
-
-          if( _gifmem != NULL ) {
-            // create a FILE from memory buffer
-            FILE *fp = fmemopen( _gifmem, len, "rb" );
-
-            // open gof file
-            // will allocate memory for background and one animation
-            // frame.
-            _gif = gd_open_gif( fp );
-            if( _gif == NULL ) {
-              return;
-            }
-            
-            // memory for rendering frame
-            _buffer = (uint32_t *)malloc(_gif->width * _gif->height * sizeof(uint32_t));
-            if( _buffer == NULL ) {
-              // out of memory
-              gd_close_gif( _gif );
-              free(_gifmem);
-            }
-            else {
-              // create thread to handle this gif
-              vexTaskAddWithArg( render, 2, static_cast<void *>(this), "GIF" );
-            }
-          }
-        }
-        
-      };
-    
-      ~Gif() {};
-    
+      Gif( const char *fname, int sx, int sy, bool bMemoryBuffer = true );    
+      ~Gif();
+      int getFrameIndex();
+      void  cleanup();
   };
 }

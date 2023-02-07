@@ -44,9 +44,11 @@ float amp_ = 2.5;
 
 bool move_rev = false;
 
+bool nsfw = false;
+
 float WheelCircumference = (101.6 * 3.14159);
 
-double gyroScale = .98;
+double gyroScale = 1.01899;
 
 float move = move_max;
 
@@ -145,7 +147,7 @@ double map(double x, double in_min, double in_max, double out_min,
   return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
 }
 
-double getDir() { return Inertial.rotation() / gyroScale; }
+double getDir() { return Inertial.rotation() * gyroScale; }
 
 double dirRel = getDir();
 
@@ -221,7 +223,7 @@ void drivePDNew(double deeeez, double spV, virtualHeading &vh)
   double theta;
   double pidOut;
   double mSpeed;
-  double tolerance = 2;
+  double tolerance = 5;
   double min2 = 5;
 
   while (1)
@@ -414,8 +416,6 @@ void pdTurn(double degrees, double sp = 1) // pd loop
 void calabrate(void)
 {
 
-  Inertial.resetRotation();
-
   L1.resetPosition();
   L2.resetPosition();
 
@@ -439,7 +439,7 @@ int configuration[maxMenus] = {0, 3, 0};
 std::string menuTypes[maxMenus] = {"Color: ", "Option: ", "Drive: "};
 
 std::string menuOptions[maxMenus][9] = {
-    {"Red", "Blue", "no lgbt"},
+    {"Red", "Blue", "MEN"},
     {"Skills", "1", "2", "3", "4", "5", "G1", "G2", "G3"},
     {"RC", "Tank", "RC2"}};
 
@@ -618,6 +618,12 @@ void menuCONFIG()
         isAutonSelectScreen = false;
         isCursorOn = false;
         break;
+      case (btnY):
+        nsfw = !nsfw;
+        Controller1.rumble(nsfw ? "-" : ".");
+        task::sleep(200);
+
+        break;
       default:
         break;
       }
@@ -652,11 +658,16 @@ void Move(int Ch1_, int Ch3_, int Ch4_)
 }
 
 void pre_auton(void)
+
 {
+  Controller1.rumble(".");
+
   menuCONFIG();
 
   Inertial.calibrate(2000);
   vex::task::sleep(2000);
+
+  Inertial.resetRotation();
 
   notificationHUD("PRE: DONE");
 
@@ -702,23 +713,60 @@ void auton3()
   virtualHeading VH1(getDir());
 
   drivePDNew(500, 80, VH1);
-  logg("here11");
-  logg(VH1.get());
 
-  delay(500);
+  delay(200);
+
+  turnPDNew(90, 80, VH1);
+
+  delay(200);
+
+  drivePDNew(-500, 50, VH1);
+
+  delay(200);
 
   turnPDNew(180, 80, VH1);
-  logg("here12");
-  logg(VH1.get());
 
-  delay(500);
+  delay(200);
 
-  drivePDNew(500, 50, VH1);
-  logg("here13");
-  logg(VH1.get());
+  drivePDNew(500, 80, VH1);
+
+  delay(200);
+
+  turnPDNew(0, 80, VH1);
 }
 
-void auton4() {}
+void auton4()
+{
+  virtualHeading VH1(getDir());
+
+  drivePDNew(600, 80, VH1);
+  delay(200);
+  turnPDNew(90, 80, VH1);
+  delay(200);
+  drivePDNew(500, 80, VH1);
+  delay(200);
+  turnPDNew(180, 80, VH1);
+  delay(200);
+  drivePDNew(500, 80, VH1);
+  delay(200);
+  turnPDNew(270, 80, VH1);
+  delay(200);
+  drivePDNew(500, 80, VH1);
+  delay(200);
+
+  // turnPDNew(180, 80, VH1);
+  // delay(200);
+  drivePDNew(-500, 80, VH1);
+  turnPDNew(180, 80, VH1);
+  delay(200);
+  drivePDNew(-500, 80, VH1);
+  turnPDNew(90, 80, VH1);
+  delay(200);
+  drivePDNew(-500, 80, VH1);
+  turnPDNew(0, 80, VH1);
+  delay(200);
+  drivePDNew(-600, 80, VH1);
+}
 
 void auton5() {}
 
@@ -883,7 +931,7 @@ void RCDrive2(void)
 
 void tankDrive(void)
 {
-  // hmmm
+  // hmmm hope he doesnt breqk his fibgers
 }
 
 void btnAP()
@@ -1044,8 +1092,25 @@ void user(void)
 
 char buf[512];
 
+bool gifWhile = true;
+
+void gifTask()
+{
+  vex::Gif gif("xp.gif", 80, 0);
+
+  while (gifWhile == true)
+  {
+    this_thread::sleep_for(10);
+  }
+  gif.cleanup();
+  this_thread::yield();
+};
+
 int main()
 {
+  // Brain.Screen.drawImageFromFile("xp.png", 80, 0);
+
+  vex::thread gifThread = thread(gifTask);
 
   calabrate();
 
@@ -1053,6 +1118,9 @@ int main()
 
   Competition.autonomous(auton);
   Competition.drivercontrol(user);
+
+  gifWhile = false;
+  // gifThread.interrupt();
 
   while (1)
   {
@@ -1065,7 +1133,7 @@ int main()
     power_usage += R2.power(watt);
     // power_usage += R3.power(watt);
 
-    if (Brain.Screen.pressing() && screen == false)
+    if (Brain.Screen.pressing())
     {
       screenMode = 1;
       Brain.Screen.clearScreen();
@@ -1094,8 +1162,10 @@ int main()
         }
       }
 
-      Brain.Screen.drawImageFromFile("swastika.png", 352, 112);
-      Brain.Screen.drawImageFromFile("gay2.png", 224, 112);
+      if (nsfw)
+        Brain.Screen.drawImageFromFile("swastika.png", 352, 112);
+      if (nsfw)
+        Brain.Screen.drawImageFromFile("gay2.png", 224, 112);
 
       Brain.Screen.setPenColor(white);
       Brain.Screen.setFillColor(transparent);
@@ -1122,16 +1192,17 @@ int main()
       if (getValues(AUTON_COLOR) == RED)
       {
         Brain.Screen.drawImageFromFile("red.png", 0, 0);
-        Brain.Screen.setFillColor(red);
       }
       else if (getValues(AUTON_COLOR) == BLUE)
       {
         Brain.Screen.drawImageFromFile("blue.png", 0, 0);
-        Brain.Screen.setFillColor(blue);
       }
       else if (getValues(AUTON_COLOR) == 2)
       {
-        Brain.Screen.drawImageFromFile("gay.png", 0, 0);
+        if (nsfw)
+          Brain.Screen.drawImageFromFile("gay.png", 0, 0);
+        else
+          Brain.Screen.drawImageFromFile("red.png", 0, 0);
       }
     }
     break;
@@ -1139,6 +1210,7 @@ int main()
 
     if (tempStatus != currStatus() || Controller1.ButtonUp.pressing())
     {
+      Controller1.Screen.clearScreen();
       statusHUD();
       tempStatus = currStatus();
     }
