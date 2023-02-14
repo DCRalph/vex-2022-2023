@@ -229,6 +229,7 @@ void drivePDNew(double deeeez, double spV, virtualHeading &vh)
   while (1)
   {
     int average = (leftGroup.position(deg) + rightGroup.position(deg)) / 2;
+    // int average = L1.position(deg);
 
     pidOut = pid.calc(pid.target, average);
     theta = pidTheta.calc(pidTheta.target, vh.get());
@@ -678,30 +679,40 @@ void auton1()
 {
   // win
 
-  Move(0, -20, 0);
-  delay(1000);
-  Move(0, 50, 0);
-  delay(1000);
-  Move(0, 0, 0);
+  virtualHeading VH1(getDir());
+
+  intake.spin(vex::directionType::rev, 12, vex::voltageUnits::volt);
+
+  drivePDNew(-200, 50, VH1);
+
+  delay(500);
+
+  intake.stop();
+
+  drivePDNew(200, 50, VH1);
+
+  // Move(0, -20, 0);
+  // delay(1000);
+  // Move(0, 50, 0);
+  // delay(1000);
+  // Move(0, 0, 0);
 }
 
 void auton2()
 {
-  drive(-1500, 50);
+  int flip = -1;
+
+  virtualHeading VH1(getDir());
+
+  drivePDNew(1250, 50, VH1);
 
   delay(200);
 
-  pdTurn(-45);
+  turnPDNew(-135 * flip, 50, VH1);
 
   delay(200);
 
-  cata.spinFor(1800, deg, 100, velocityUnits::pct, true);
-
-  intake.spin(directionType::fwd, 80, velocityUnits::pct);
-
-  delay(1000);
-
-  intake.stop();
+  drivePDNew(-220, 50, VH1);
 
   delay(200);
 
@@ -710,29 +721,10 @@ void auton2()
 
 void auton3()
 {
+
   virtualHeading VH1(getDir());
 
-  drivePDNew(500, 80, VH1);
-
-  delay(200);
-
-  turnPDNew(90, 80, VH1);
-
-  delay(200);
-
-  drivePDNew(-500, 50, VH1);
-
-  delay(200);
-
-  turnPDNew(180, 80, VH1);
-
-  delay(200);
-
-  drivePDNew(500, 80, VH1);
-
-  delay(200);
-
-  turnPDNew(0, 80, VH1);
+  roller.spinFor(fwd, configuration[0] == RED ? 90 : -90, vex::rotationUnits::deg, true);
 }
 
 void auton4()
