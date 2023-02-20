@@ -435,7 +435,7 @@ std::string robotStatus[4] = {"Robot Disabled", "Driver Control",
                               "Auton Control ", "MODE ERROR    "};
 
 int maxMenusIndex[maxMenus] = {3, 9, 3};
-int configuration[maxMenus] = {0, 3, 0};
+int configuration[maxMenus] = {0, 2, 0};
 
 std::string menuTypes[maxMenus] = {"Color: ", "Option: ", "Drive: "};
 
@@ -698,17 +698,16 @@ void auton1()
   // Move(0, 0, 0);
 }
 
-void auton2()
+void auton2(int flip = 1)
 {
-  int flip = -1;
 
   virtualHeading VH1(getDir());
 
-  drivePDNew(1250, 50, VH1);
+  drivePDNew(1250, 80, VH1);
 
   delay(200);
 
-  turnPDNew(-135 * flip, 50, VH1);
+  turnPDNew(138 * flip, 50, VH1);
 
   delay(200);
 
@@ -717,14 +716,35 @@ void auton2()
   delay(200);
 
   cata.spinFor(1800, deg, 100, velocityUnits::pct, true);
+
+  intake.spinFor(1800, deg, 100, velocityUnits::pct, true);
+
+  delay(200);
+
+  cata.spinFor(1800, deg, 100, velocityUnits::pct, false);
+
+  delay(500);
+
+  drivePDNew(100, 50, VH1);
+
+  // end here
+
+  // delay(200);
+
+  // turnPDNew(45 * flip, 50, VH1);
+
+  // delay(200);
+
+  // drivePDNew(1700, 80, VH1);
+
+  // delay(200);
+
+  // turnPDNew(90 * flip, 50, VH1);
 }
 
 void auton3()
 {
-
-  virtualHeading VH1(getDir());
-
-  roller.spinFor(fwd, configuration[0] == RED ? 90 : -90, vex::rotationUnits::deg, true);
+  auton2(-1);
 }
 
 void auton4()
